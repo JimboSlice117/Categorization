@@ -261,7 +261,7 @@ Chosen Category:`;
       const payload = {
         model: OPENAI_MODEL,
         messages: [{ role: "user", content: categorizationPrompt }],
-        max_completion_tokens: MAX_COMPLETION_TOKENS,
+        max_tokens: MAX_COMPLETION_TOKENS,
         temperature: OPENAI_TEMPERATURE
       };
       const options = {
@@ -291,10 +291,10 @@ Chosen Category:`;
           }
           break; 
 
-        } else if (responseCode === 429) { 
+        } else if (responseCode === 429) {
           attempts++;
           Logger.log(`Rate limit hit (attempt ${attempts}/${MAX_API_RETRIES}) for product: ${title}. Retrying after delay. Response: ${responseText}`);
-          let retryAfterSeconds = 5 * attempts; 
+          let retryAfterSeconds = 5 * attempts;
           try {
             const errorPayload = JSON.parse(responseText);
             if (errorPayload && errorPayload.error && errorPayload.error.message) {
@@ -310,10 +310,14 @@ Chosen Category:`;
             chosenCategory = `API_ERROR_RATE_LIMIT_MAX_RETRIES: ${responseCode}`;
             break;
           }
-        } else { 
+        } else if (responseCode === 401) {
+          Logger.log(`Unauthorized API key for product ${title}. Response: ${responseText}`);
+          chosenCategory = 'API_ERROR_UNAUTHORIZED';
+          break;
+        } else {
           Logger.log(`API Error for product ${title}: HTTP ${responseCode} - ${responseText}`);
           chosenCategory = `API_ERROR: ${responseCode}`;
-          break; 
+          break;
         }
       } catch (e) {
         Logger.log(`Script execution error during API call for product ${title}: ${e.toString()} ${e.stack}`);
