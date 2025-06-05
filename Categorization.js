@@ -642,6 +642,59 @@ function columnLetterToIndex(col) {
   return index;
 }
 
+/**
+ * Detects ambiguous bundle-related terms in the title or description.
+ */
+function detectBundleAmbiguity(title, description) {
+  const text = ((title || '') + ' ' + (description || '')).toLowerCase();
+  return /(\bkit\b|\bbundle\b|\bpack\b|\bsystem\b)/i.test(text);
+}
+
+/**
+ * Extracts simple structured data such as model, size and specs from text.
+ */
+function extractStructuredData(title, description) {
+  const text = ((title || '') + ' ' + (description || '')).replace(/\n+/g, ' ');
+  const data = {};
+  let m = text.match(/\bmodel[:\s#-]*([A-Za-z0-9-]+)/i);
+  if (m) data.model = m[1];
+  m = text.match(/\b(?:size|dimension|dimensions)[:\s]*([A-Za-z0-9\."' xX×]+)/i);
+  if (m) data.size = m[1];
+  m = text.match(/\b(?:specs?|specifications?)[:\s]*([^.;]+)/i);
+  if (m) data.specs = m[1].trim();
+  return data;
+}
+
+/**
+ * Builds the prompt sent to the AI, optionally adding ambiguity guidance and
+ * structured data fields.
+ */
+function buildCategorizationPrompt(title, description, categories, extraData, isAmbiguous) {
+  let prompt = `You are an expert e-commerce product categorizer. Carefully study the information below and pick the single most accurate category from the fixed "AVAILABLE CATEGORIES" list.
+
+Guidelines:
+1. Analyze the Product Title and Description to determine the exact product type, purpose, and any key features.
+2. Consider the vendor/brand for additional context.
+3. Search the list for the most specific category that matches these attributes, using synonyms and context when needed.
+4. If no perfect match exists, choose the closest broader category. Use accessory categories when appropriate.
+5. Ensure your answer is EXACTLY one category name copied verbatim from the list. Do not alter or invent names.`;
+
+  if (isAmbiguous) {
+    prompt += `\nThis listing may describe a kit, bundle, pack or system. Focus on the primary product type when choosing a category.`;
+  }
+
+  if (extraData && Object.keys(extraData).length > 0) {
+    prompt += `\n\nExtracted Details:`;
+    if (extraData.model) prompt += `\nModel: ${extraData.model}`;
+    if (extraData.size) prompt += `\nSize: ${extraData.size}`;
+    if (extraData.specs) prompt += `\nSpecs: ${extraData.specs}`;
+  }
+
+  prompt += `\n\nAVAILABLE CATEGORIES:\n${categories.join('\n')}\n\nProduct Title: "${title}"\nProduct Description: "${description}"\n\nThink carefully, then reply ONLY with the chosen category:`;
+
+  return prompt;
+}
+
 
 /**
  * Creates a custom menu when the Google Sheet is opened.
@@ -852,22 +905,15 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
         continue;
     }
 
-    const categorizationPrompt = `You are an expert e-commerce product categorizer. Carefully study the information below and pick the single most accurate category from the fixed "AVAILABLE CATEGORIES" list.
-
-    Guidelines:
-    1. Analyze the Product Title and Description to determine the exact product type, purpose, and any key features.
-    2. Consider the vendor/brand for additional context.
-    3. Search the list for the most specific category that matches these attributes, using synonyms and context when needed.
-    4. If no perfect match exists, choose the closest broader category. Use accessory categories when appropriate.
-    5. Ensure your answer is EXACTLY one category name copied verbatim from the list. Do not alter or invent names.
-
-    AVAILABLE CATEGORIES:
-    \${categoriesForThisPrompt.join('\\n')}
-
-    Product Title: "\${title}"
-    Product Description: "\${description}"
-
-    Think carefully, then reply ONLY with the chosen category:`;
+    const isAmbiguous = detectBundleAmbiguity(title, description);
+    const structuredData = extractStructuredData(title, description);
+    const categorizationPrompt = buildCategorizationPrompt(
+      String(title),
+      String(description),
+      categoriesForThisPrompt,
+      structuredData,
+      isAmbiguous
+    );
 
     let chosenCategory = "NEEDS_MANUAL_REVIEW_API_ISSUE"; 
     let attempts = 0;
