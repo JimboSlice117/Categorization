@@ -40,11 +40,22 @@ const KEYWORD_TO_CATEGORY_GROUP_MAPPINGS = [
   // ... Add more general keyword mappings ...
 ];
 
-const TOP_LEVEL_CATEGORIES_FOR_FALLBACK = [ 
+const TOP_LEVEL_CATEGORIES_FOR_FALLBACK = [
     "Business AV", "Computers & Peripherals", "DJ Equipment", "Home & Business AV",
     "Microphones", "Mobile", "Musical Instruments", "Pro Audio", "Pro Lighting", "Pro Video", "Used"
 ];
 // --- END OF USER POPULATION SECTION ---
+
+/**
+ * Converts a spreadsheet column letter (e.g., "A" or "FY") to a 1-based column index.
+ */
+function columnLetterToIndex(col) {
+  let index = 0;
+  for (let i = 0; i < col.length; i++) {
+    index = index * 26 + (col.charCodeAt(i) - 64);
+  }
+  return index;
+}
 
 
 /**
@@ -193,11 +204,31 @@ function categorizeProductsWithFixedList() {
   const lastRow = baseTemplateSheet.getLastRow();
   if (lastRow < 2) { ui.alert("No product data found in '" + SHEET_NAME_PRODUCTS + "'."); return; }
 
-  const titles = baseTemplateSheet.getRange(TITLE_COLUMN + "2:" + TITLE_COLUMN + lastRow).getValues().flat();
-  const descriptions = baseTemplateSheet.getRange(DESCRIPTION_COLUMN + "2:" + DESCRIPTION_COLUMN + lastRow).getValues().flat();
-  const vendors = baseTemplateSheet.getRange(VENDOR_COLUMN + "2:" + VENDOR_COLUMN + lastRow).getValues().flat();
-  const outputRange = baseTemplateSheet.getRange(OUTPUT_CATEGORY_COLUMN + "2:" + OUTPUT_CATEGORY_COLUMN + lastRow);
-  const currentOutputValues = outputRange.getValues();
+  const titleColIndex = columnLetterToIndex(TITLE_COLUMN);
+  const descriptionColIndex = columnLetterToIndex(DESCRIPTION_COLUMN);
+  const vendorColIndex = columnLetterToIndex(VENDOR_COLUMN);
+  const outputColIndex = columnLetterToIndex(OUTPUT_CATEGORY_COLUMN);
+
+  const startCol = Math.min(titleColIndex, descriptionColIndex, vendorColIndex, outputColIndex);
+  const endCol = Math.max(titleColIndex, descriptionColIndex, vendorColIndex, outputColIndex);
+  const width = endCol - startCol + 1;
+
+  const dataRange = baseTemplateSheet.getRange(2, startCol, lastRow - 1, width);
+  const data = dataRange.getValues();
+
+  const titles = [];
+  const descriptions = [];
+  const vendors = [];
+  const currentOutputValues = [];
+
+  for (let i = 0; i < data.length; i++) {
+    titles.push(data[i][titleColIndex - startCol]);
+    descriptions.push(data[i][descriptionColIndex - startCol]);
+    vendors.push(data[i][vendorColIndex - startCol]);
+    currentOutputValues.push([data[i][outputColIndex - startCol]]);
+  }
+
+  const outputRange = baseTemplateSheet.getRange(2, outputColIndex, lastRow - 1, 1);
 
   const results = [];
   let processedCount = 0;
