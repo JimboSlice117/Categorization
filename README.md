@@ -11,6 +11,8 @@ This project contains a Google Apps Script for automatically categorizing produc
    - Column **FY**: Output category
 2. **Categories sheet** named `Shopify_Categories` with available categories listed in column **A**.
 
+If the `Shopify_Categories` sheet is missing or empty, the script falls back to a large built-in list defined in `DEFAULT_CATEGORY_LIST` inside `Categorization.js`.
+
 ## Usage
 
 1. Open the Google Sheet and choose **Extensions → Apps Script**.
