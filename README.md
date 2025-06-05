@@ -28,3 +28,7 @@ If the `Shopify_Categories` sheet is missing or empty, the script falls back to 
 Vendor‑specific prefixes and keyword mappings used to filter the category list can be edited in the `VENDOR_SPECIFIC_CATEGORY_PREFIXES` and `KEYWORD_TO_CATEGORY_GROUP_MAPPINGS` objects inside `Categorization.js`. Adjust these arrays to influence how categories are suggested for your products.
 The `BATCH_SIZE` constant controls how many rows are processed when running the batch command.
 
+## Post-Processing Validation
+
+Each categorization response must include a confidence level (High, Medium, or Low). Results that are not High are automatically flagged for manual review. The script also checks that vendor-specific categories match the configured `VENDOR_SPECIFIC_CATEGORY_PREFIXES`. If a mismatch occurs, the output is marked with an `AI_LOGIC_CONFLICT` error. Finally, nearly identical product titles categorized differently in the same run are flagged as duplicates for review.
+
