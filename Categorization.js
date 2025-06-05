@@ -228,31 +228,22 @@ function categorizeProductsWithFixedList() {
         continue;
     }
 
-    const categorizationPrompt = `You are an expert e-commerce product categorizer. Your task is to analyze the given product and select the single most appropriate category from the "AVAILABLE CATEGORIES" list provided below. This list is fixed and cannot be changed.
+    const categorizationPrompt = `You are an expert e-commerce product categorizer. Carefully study the information below and pick the single most accurate category from the fixed "AVAILABLE CATEGORIES" list.
 
-Instructions:
-1.  **Detailed Product Analysis & Identification:**
-    a.  **Core Attributes:** Scrutinize the Product Title and Description to thoroughly understand its specific function, type, and primary use.
-    b.  **Brand-Specific Products:** Consider the vendor/brand when assessing the product type.
-    c.  **Product Variations & Features:** Pay close attention to details indicating specific variations or key features.
-2.  **Select the Single Most Appropriate Category from the Fixed "AVAILABLE CATEGORIES" List:**
-    a.  **Review Available Options:** Carefully review the entire "AVAILABLE CATEGORIES" list you have been given for this product.
-    b.  **Match Specificity (If Possible):** If a category in this list *closely and accurately* matches the specific product type, choose that specific category.
-    c.  **Select Best Broader Category (If Specific Match Unavailable):** If no highly specific category exists in this list, you MUST select the broader category from this list that provides the most logical classification.
-    d.  **Accessories:** If the item is an accessory, prioritize an accessory-type category from the list.
-    e.  **Mandatory Selection:** You MUST select one category from the "AVAILABLE CATEGORIES" list for this product.
-3.  **Final Output Requirements:**
-    a.  Your final choice MUST be one single category name taken EXACTLY from the "AVAILABLE CATEGORIES" list. Do NOT invent or modify category names.
-    b.  **Final Verification (Crucial): Before outputting your 'Chosen Category', mentally double-check: Is the category string you are about to provide an exact, character-for-character, case-sensitive copy of one single entry from the 'AVAILABLE CATEGORIES' list that was provided to you for this product? If it is not, you have made an error. You MUST go back, re-evaluate, and select an exact, verbatim match from that list.**
-    c.  Your response must consist SOLELY of this chosen (and verified exact match) category name.
+    Guidelines:
+    1. Analyze the Product Title and Description to determine the exact product type, purpose, and any key features.
+    2. Consider the vendor/brand for additional context.
+    3. Search the list for the most specific category that matches these attributes, using synonyms and context when needed.
+    4. If no perfect match exists, choose the closest broader category. Use accessory categories when appropriate.
+    5. Ensure your answer is EXACTLY one category name copied verbatim from the list. Do not alter or invent names.
 
-AVAILABLE CATEGORIES:
-${categoriesForThisPrompt.join('\n')}
+    AVAILABLE CATEGORIES:
+    \${categoriesForThisPrompt.join('\\n')}
 
-Product Title: "${title}"
-Product Description: "${description}"
+    Product Title: "\${title}"
+    Product Description: "\${description}"
 
-Chosen Category:`;
+    Think carefully, then reply ONLY with the chosen category:`;
 
     let chosenCategory = "NEEDS_MANUAL_REVIEW_API_ISSUE"; 
     let attempts = 0;
