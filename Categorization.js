@@ -9,7 +9,8 @@ const TITLE_COLUMN = "A";
 const DESCRIPTION_COLUMN = "T"; 
 const VENDOR_COLUMN = "U";    // <<<< ADAPT THIS if your Vendor column is different
 const OUTPUT_CATEGORY_COLUMN = "FY";
-const MAX_API_RETRIES = 3; 
+const MAX_API_RETRIES = 3;
+const BATCH_SIZE = 50; // Maximum rows to process per batch
 
 // --- USER TO POPULATE BASED ON CHATGPT ANALYSIS & THEIR DATA ---
 const VENDOR_SPECIFIC_CATEGORY_PREFIXES = {
@@ -55,6 +56,7 @@ function onOpen() {
     .createMenu('Product Tools')
     .addItem('1. Set API Key', 'setApiKey') // MODIFIED Text and Function Name
     .addItem('2. Categorize Products (Fixed List)', 'categorizeProductsWithFixedList')
+    .addItem('3. Categorize Next Batch', 'categorizeNextBatch')
     .addToUi();
 }
 
@@ -168,7 +170,7 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
 /**
  * Processes product listings to categorize them using a fixed list and an external API.
  */
-function categorizeProductsWithFixedList() {
+function categorizeProductsWithFixedList(maxRowsToProcess) {
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const baseTemplateSheet = ss.getSheetByName(SHEET_NAME_PRODUCTS);
@@ -199,12 +201,14 @@ function categorizeProductsWithFixedList() {
   const outputRange = baseTemplateSheet.getRange(OUTPUT_CATEGORY_COLUMN + "2:" + OUTPUT_CATEGORY_COLUMN + lastRow);
   const currentOutputValues = outputRange.getValues();
 
-  const results = [];
+  const resultsToWrite = [];
   let processedCount = 0;
 
   for (let i = 0; i < titles.length; i++) {
+    if (maxRowsToProcess && processedCount >= maxRowsToProcess) {
+      break;
+    }
     if (currentOutputValues[i][0] && !String(currentOutputValues[i][0]).startsWith("API_ERROR") && !String(currentOutputValues[i][0]).startsWith("SCRIPT_ERROR") && String(currentOutputValues[i][0]).toUpperCase() !== "NEEDS_MANUAL_REVIEW") {
-      results.push([currentOutputValues[i][0]]);
       continue;
     }
 
@@ -213,7 +217,6 @@ function categorizeProductsWithFixedList() {
     const vendor = vendors[i] || ""; 
 
     if (!title && !description) {
-      results.push([""]); 
       continue;
     }
 
@@ -224,7 +227,7 @@ function categorizeProductsWithFixedList() {
 
     if (categoriesForThisPrompt.length === 0) {
         Logger.log("CRITICAL: categoriesForThisPrompt is empty for product: " + title + " even after fallbacks. Skipping API call, marking for review.");
-        results.push(["NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT"]);
+        resultsToWrite.push([i, "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT"]);
         continue;
     }
 
@@ -316,13 +319,20 @@ function categorizeProductsWithFixedList() {
         break; 
       }
     }
-    results.push([chosenCategory]);
+    resultsToWrite.push([i, chosenCategory]);
   }
 
-  if (results.length > 0) {
-    outputRange.setValues(results); 
+  if (resultsToWrite.length > 0) {
+    resultsToWrite.forEach(function(item) {
+      outputRange.getCell(item[0] + 1, 1).setValue(item[1]);
+    });
     ui.alert(`Product categorization complete! ${processedCount} products were processed/re-processed in this run.`);
   } else {
     ui.alert("No products needed processing in this run or no products found.");
   }
 }
+
+function categorizeNextBatch() {
+  categorizeProductsWithFixedList(BATCH_SIZE);
+}
+
