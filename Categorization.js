@@ -645,7 +645,10 @@ function columnLetterToIndex(col) {
 /**
  * Detects ambiguous bundle-related terms in the title or description.
  */
-function detectBundleAmbiguity(title, description) {
+// Returns true if text includes words that often mean the listing could be a
+// bundle, kit, pack or system. This helps us tweak the AI prompt so the model
+// focuses on the primary item when a bundle is detected.
+function detectBundleAmbiguityTerms(title, description) {
   const text = ((title || '') + ' ' + (description || '')).toLowerCase();
   return /(\bkit\b|\bbundle\b|\bpack\b|\bsystem\b)/i.test(text);
 }
@@ -653,23 +656,26 @@ function detectBundleAmbiguity(title, description) {
 /**
  * Extracts simple structured data such as model, size and specs from text.
  */
-function extractStructuredData(title, description) {
+// Extracts lightweight structured details from the text that may help the AI
+// understand what is being sold. Currently looks for a model identifier, any
+// noted size/dimensions and a block of specifications.
+function parseStructuredDetails(title, description) {
   const text = ((title || '') + ' ' + (description || '')).replace(/\n+/g, ' ');
-  const data = {};
+  const details = {};
   let m = text.match(/\bmodel[:\s#-]*([A-Za-z0-9-]+)/i);
-  if (m) data.model = m[1];
+  if (m) details.model = m[1];
   m = text.match(/\b(?:size|dimension|dimensions)[:\s]*([A-Za-z0-9\."' xX×]+)/i);
-  if (m) data.size = m[1];
+  if (m) details.size = m[1];
   m = text.match(/\b(?:specs?|specifications?)[:\s]*([^.;]+)/i);
-  if (m) data.specs = m[1].trim();
-  return data;
+  if (m) details.specs = m[1].trim();
+  return details;
 }
 
 /**
  * Builds the prompt sent to the AI, optionally adding ambiguity guidance and
  * structured data fields.
  */
-function buildCategorizationPrompt(title, description, categories, extraData, isAmbiguous) {
+function buildAICategorizationPrompt(title, description, categories, extraData, isAmbiguous) {
   let prompt = `You are an expert e-commerce product categorizer. Carefully study the information below and pick the single most accurate category from the fixed "AVAILABLE CATEGORIES" list.
 
 Guidelines:
@@ -905,9 +911,9 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
         continue;
     }
 
-    const isAmbiguous = detectBundleAmbiguity(title, description);
-    const structuredData = extractStructuredData(title, description);
-    const categorizationPrompt = buildCategorizationPrompt(
+    const isAmbiguous = detectBundleAmbiguityTerms(title, description);
+    const structuredData = parseStructuredDetails(title, description);
+    const categorizationPrompt = buildAICategorizationPrompt(
       String(title),
       String(description),
       categoriesForThisPrompt,
