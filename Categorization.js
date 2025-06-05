@@ -642,6 +642,11 @@ function columnLetterToIndex(col) {
   return index;
 }
 
+// Normalizes a product title for duplicate detection.
+function normalizeTitle(text) {
+  return String(text).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 /**
  * Detects ambiguous bundle-related terms in the title or description.
  */
@@ -696,7 +701,9 @@ Guidelines:
     if (extraData.specs) prompt += `\nSpecs: ${extraData.specs}`;
   }
 
-  prompt += `\n\nAVAILABLE CATEGORIES:\n${categories.join('\n')}\n\nProduct Title: "${title}"\nProduct Description: "${description}"\n\nThink carefully, then reply ONLY with the chosen category:`;
+  prompt += `\n\nAVAILABLE CATEGORIES:\n${categories.join('\n')}\n\nProduct Title: "${title}"\nProduct Description: "${description}"`;
+  prompt += `\n\nThink carefully, then reply ONLY with the chosen category followed by a pipe and a confidence rating of High, Medium, or Low.`;
+  prompt += `\nExample: Pro Audio > Mixers | High`;
 
   return prompt;
 }
@@ -907,7 +914,7 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
     if (categoriesForThisPrompt.length === 0) {
         Logger.log("CRITICAL: categoriesForThisPrompt is empty for product: " + title + " even after fallbacks. Skipping API call, marking for review.");
-        resultsToWrite.push([i, "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT"]);
+        resultsToWrite.push({row: i, output: "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT", actual: "", normalized: normalizeTitle(title)});
         continue;
     }
 
@@ -921,7 +928,8 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
       isAmbiguous
     );
 
-    let chosenCategory = "NEEDS_MANUAL_REVIEW_API_ISSUE"; 
+    let chosenCategory = "NEEDS_MANUAL_REVIEW_API_ISSUE";
+    let validatedCategory = "";
     let attempts = 0;
 
     while (attempts < MAX_API_RETRIES) {
@@ -945,18 +953,37 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
         if (responseCode === 200) {
           const jsonResponse = JSON.parse(responseText);
-          let extractedCategory = jsonResponse.choices && jsonResponse.choices[0] && jsonResponse.choices[0].message && jsonResponse.choices[0].message.content
-                                  ? jsonResponse.choices[0].message.content.trim()
-                                  : "";
-          
+          let rawText = jsonResponse.choices && jsonResponse.choices[0] && jsonResponse.choices[0].message && jsonResponse.choices[0].message.content
+                               ? jsonResponse.choices[0].message.content.trim()
+                               : "";
+
+          let extractedCategory = rawText;
+          let confidence = "";
+          const match = rawText.match(/^(.*?)(?:\s*\|\s*(High|Medium|Low))?$/i);
+          if (match) {
+            extractedCategory = match[1].trim();
+            confidence = match[2] ? match[2].trim().toUpperCase() : "";
+          }
+
           const lowerCaseAllowedCategories = categoriesForThisPrompt.map(cat => cat.toLowerCase());
+
           if (extractedCategory && lowerCaseAllowedCategories.includes(extractedCategory.toLowerCase())) {
-            chosenCategory = categoriesForThisPrompt.find(cat => cat.toLowerCase() === extractedCategory.toLowerCase()) || extractedCategory;
+            validatedCategory = categoriesForThisPrompt.find(cat => cat.toLowerCase() === extractedCategory.toLowerCase()) || extractedCategory;
           } else {
             Logger.log(`CRITICAL AI DEVIATION: AI returned category "${extractedCategory}" which is not in the (filtered) allowed list for title: "${title}". Filtered list had ${categoriesForThisPrompt.length} items. First item was: "${categoriesForThisPrompt.length > 0 ? categoriesForThisPrompt[0] : 'EMPTY_FILTERED_LIST'}". Assigning first from filtered list as fallback.`);
-            chosenCategory = categoriesForThisPrompt.length > 0 ? categoriesForThisPrompt[0] : "NEEDS_MANUAL_REVIEW_AI_INVALID_CHOICE";
+            validatedCategory = categoriesForThisPrompt.length > 0 ? categoriesForThisPrompt[0] : "NEEDS_MANUAL_REVIEW_AI_INVALID_CHOICE";
           }
-          break; 
+
+          const vendorPrefixes = VENDOR_SPECIFIC_CATEGORY_PREFIXES[vendor] || VENDOR_SPECIFIC_CATEGORY_PREFIXES[Object.keys(VENDOR_SPECIFIC_CATEGORY_PREFIXES).find(v => vendor.toLowerCase().includes(v.toLowerCase()))];
+          if (vendorPrefixes && !vendorPrefixes.some(p => validatedCategory.startsWith(p))) {
+            chosenCategory = `AI_LOGIC_CONFLICT_VENDOR_PREFIX: ${validatedCategory}`;
+          } else if (confidence !== "HIGH") {
+            chosenCategory = `NEEDS_MANUAL_REVIEW_CONFIDENCE_${confidence || 'MISSING'}: ${validatedCategory}`;
+          } else {
+            chosenCategory = validatedCategory;
+          }
+
+          break;
 
         } else if (responseCode === 429) {
           attempts++;
@@ -992,12 +1019,28 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
         break; 
       }
     }
-    resultsToWrite.push([i, chosenCategory]);
+    resultsToWrite.push({row: i, output: chosenCategory, actual: validatedCategory || chosenCategory, normalized: normalizeTitle(title)});
   }
+
+  const dupMap = {};
+  resultsToWrite.forEach(item => {
+    const key = item.normalized;
+    if (!dupMap[key]) {
+      dupMap[key] = {category: item.actual, refs: [item]};
+    } else {
+      if (dupMap[key].category !== item.actual) {
+        dupMap[key].refs.forEach(r => { r.output = 'AI_LOGIC_CONFLICT_DUPLICATE'; });
+        item.output = 'AI_LOGIC_CONFLICT_DUPLICATE';
+        dupMap[key].refs.push(item);
+      } else {
+        dupMap[key].refs.push(item);
+      }
+    }
+  });
 
   if (resultsToWrite.length > 0) {
     resultsToWrite.forEach(function(item) {
-      outputRange.getCell(item[0] + 1, 1).setValue(item[1]);
+      outputRange.getCell(item.row + 1, 1).setValue(item.output);
     });
     ui.alert(`Product categorization complete! ${processedCount} products were processed/re-processed in this run.`);
   } else {
