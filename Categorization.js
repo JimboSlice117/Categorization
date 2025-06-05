@@ -191,6 +191,7 @@ function categorizeProductsWithFixedList() {
   Logger.log(`Loaded ${allMasterCategories.length} master categories.`);
 
   const lastRow = baseTemplateSheet.getLastRow();
+  ss.toast(`Starting categorization of ${lastRow - 1} products...`, 'Categorizing...', 5);
   if (lastRow < 2) { ui.alert("No product data found in '" + SHEET_NAME_PRODUCTS + "'."); return; }
 
   const titles = baseTemplateSheet.getRange(TITLE_COLUMN + "2:" + TITLE_COLUMN + lastRow).getValues().flat();
@@ -203,6 +204,7 @@ function categorizeProductsWithFixedList() {
   let processedCount = 0;
 
   for (let i = 0; i < titles.length; i++) {
+    ss.toast(`Processing ${i + 1} of ${titles.length} products`, 'Categorizing...', -1);
     if (currentOutputValues[i][0] && !String(currentOutputValues[i][0]).startsWith("API_ERROR") && !String(currentOutputValues[i][0]).startsWith("SCRIPT_ERROR") && String(currentOutputValues[i][0]).toUpperCase() !== "NEEDS_MANUAL_REVIEW") {
       results.push([currentOutputValues[i][0]]);
       continue;
@@ -320,7 +322,8 @@ function categorizeProductsWithFixedList() {
   }
 
   if (results.length > 0) {
-    outputRange.setValues(results); 
+    outputRange.setValues(results);
+    ss.toast(`Categorization complete. ${processedCount} products processed.`, 'Done', 5);
     ui.alert(`Product categorization complete! ${processedCount} products were processed/re-processed in this run.`);
   } else {
     ui.alert("No products needed processing in this run or no products found.");
