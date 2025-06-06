@@ -745,23 +745,23 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
   const combinedText = titleLower + " " + descriptionLower;
   const vendorLower = productVendor ? String(productVendor).toLowerCase() : "";
 
-  let candidateGroupPrefixes = new Set(); 
+  let candidateGroupPrefixes = new Set();
   let matchOccurred = false;
 
   for (const vendorKey in VENDOR_SPECIFIC_CATEGORY_PREFIXES) {
-    if (vendorLower.includes(vendorKey.toLowerCase())) { 
+    if (vendorLower.includes(vendorKey.toLowerCase())) {
       VENDOR_SPECIFIC_CATEGORY_PREFIXES[vendorKey].forEach(prefix => candidateGroupPrefixes.add(prefix));
       matchOccurred = true;
       Logger.log("Matched vendor '" + productVendor + "' to rule for: " + vendorKey);
-      break; 
+      break;
     }
   }
 
-  if (!matchOccurred || candidateGroupPrefixes.size < 5) { 
+  if (!matchOccurred || candidateGroupPrefixes.size < 5) {
     KEYWORD_TO_CATEGORY_GROUP_MAPPINGS.forEach(mapping => {
       if (mapping.keywordsRegex.test(combinedText)) {
         mapping.targetGroupPrefixes.forEach(prefix => candidateGroupPrefixes.add(prefix));
-        matchOccurred = true; 
+        matchOccurred = true;
       }
     });
   }
@@ -772,33 +772,33 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
       for (const prefix of candidateGroupPrefixes) {
         if (masterCategory.startsWith(prefix)) {
           filteredCategories.push(masterCategory);
-          break; 
+          break;
         }
       }
     });
-    filteredCategories = [...new Set(filteredCategories)]; 
+    filteredCategories = [...new Set(filteredCategories)];
   }
 
   if (matchOccurred && filteredCategories.length === 0) {
-      Logger.log("Warning: Keyword/Vendor rules matched, but no categories found starting with prefixes: [" + Array.from(candidateGroupPrefixes).join(", ") + "] for '" + productTitle + "'. Broadening search.");
-      const matchedTopLevels = new Set();
-      candidateGroupPrefixes.forEach(prefix => {
-          const topLevel = prefix.split(" > ")[0];
-          if (TOP_LEVEL_CATEGORIES_FOR_FALLBACK.includes(topLevel)) {
-              matchedTopLevels.add(topLevel);
-          }
-      });
-      if (matchedTopLevels.size > 0) {
-          allMasterCategories.forEach(masterCategory => {
-              for (const topLevel of matchedTopLevels) {
-                  if (masterCategory.startsWith(topLevel)) {
-                      filteredCategories.push(masterCategory);
-                      break;
-                  }
-              }
-          });
-          filteredCategories = [...new Set(filteredCategories)];
+    Logger.log("Warning: Keyword/Vendor rules matched, but no categories found starting with prefixes: [" + Array.from(candidateGroupPrefixes).join(", ") + "] for '" + productTitle + "'. Broadening search.");
+    const matchedTopLevels = new Set();
+    candidateGroupPrefixes.forEach(prefix => {
+      const topLevel = prefix.split(" > ")[0];
+      if (TOP_LEVEL_CATEGORIES_FOR_FALLBACK.includes(topLevel)) {
+        matchedTopLevels.add(topLevel);
       }
+    });
+    if (matchedTopLevels.size > 0) {
+      allMasterCategories.forEach(masterCategory => {
+        for (const topLevel of matchedTopLevels) {
+          if (masterCategory.startsWith(topLevel)) {
+            filteredCategories.push(masterCategory);
+            break;
+          }
+        }
+      });
+      filteredCategories = [...new Set(filteredCategories)];
+    }
   }
 
   if (filteredCategories.length === 0) {
@@ -806,24 +806,24 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
     allMasterCategories.forEach(masterCategory => {
       for (const topLevel of TOP_LEVEL_CATEGORIES_FOR_FALLBACK) {
         if (masterCategory.startsWith(topLevel)) {
-          filteredCategories.push(masterCategory); 
+          filteredCategories.push(masterCategory);
         }
       }
     });
     filteredCategories = [...new Set(filteredCategories)];
   }
-  
+
   if (filteredCategories.length > MAX_CATEGORIES_TO_SEND) {
     Logger.log("Filtered list for '" + productTitle + "' has " + filteredCategories.length + " categories. Truncating to " + MAX_CATEGORIES_TO_SEND);
     filteredCategories = filteredCategories.slice(0, MAX_CATEGORIES_TO_SEND);
   }
-  
+
   if (filteredCategories.length === 0 && allMasterCategories.length > 0) {
-      Logger.log("CRITICAL FALLBACK: No categories selected by any filter for '" + productTitle + "'. Sending first 50 master categories to AI to prevent empty list.");
-      return allMasterCategories.slice(0, 50); 
+    Logger.log("CRITICAL FALLBACK: No categories selected by any filter for '" + productTitle + "'. Sending first 50 master categories to AI to prevent empty list.");
+    return allMasterCategories.slice(0, 50);
   }
 
-  Logger.log("For product '" + productTitle + "' (Vendor: " + productVendor + "), sending " + filteredCategories.length + " relevant categories to AI: [" + filteredCategories.slice(0,5).join(", ") + (filteredCategories.length > 5 ? "..." : "") + "]");
+  Logger.log("For product '" + productTitle + "' (Vendor: " + productVendor + "), sending " + filteredCategories.length + " relevant categories to AI: [" + filteredCategories.slice(0, 5).join(", ") + (filteredCategories.length > 5 ? "..." : "") + "]");
   return filteredCategories;
 }
 
@@ -837,7 +837,10 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
   const baseTemplateSheet = ss.getSheetByName(SHEET_NAME_PRODUCTS);
   const categoriesSheet = ss.getSheetByName(SHEET_NAME_CATEGORIES);
 
-  if (!baseTemplateSheet) { ui.alert(`Error: Sheet "${SHEET_NAME_PRODUCTS}" not found.`); return; }
+  if (!baseTemplateSheet) {
+    ui.alert(`Error: Sheet "${SHEET_NAME_PRODUCTS}" not found.`);
+    return;
+  }
 
   let allMasterCategories = [];
   if (categoriesSheet) {
@@ -860,7 +863,10 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
   Logger.log(`Loaded ${allMasterCategories.length} master categories.`);
 
   const lastRow = baseTemplateSheet.getLastRow();
-  if (lastRow < 2) { ui.alert("No product data found in '" + SHEET_NAME_PRODUCTS + "'."); return; }
+  if (lastRow < 2) {
+    ui.alert("No product data found in '" + SHEET_NAME_PRODUCTS + "'.");
+    return;
+  }
 
   const titleColIndex = columnLetterToIndex(TITLE_COLUMN);
   const descriptionColIndex = columnLetterToIndex(DESCRIPTION_COLUMN);
@@ -901,7 +907,7 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
     const title = titles[i];
     const description = descriptions[i];
-    const vendor = vendors[i] || ""; 
+    const vendor = vendors[i] || "";
 
     if (!title && !description) {
       continue;
@@ -909,13 +915,18 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
     Logger.log(`Processing row ${i + 2}: Title - "${title}", Vendor - "${vendor}"`);
     processedCount++;
-    
+
     const categoriesForThisPrompt = getRelevantCategoriesForProduct(String(title), String(description), String(vendor), allMasterCategories);
 
     if (categoriesForThisPrompt.length === 0) {
-        Logger.log("CRITICAL: categoriesForThisPrompt is empty for product: " + title + " even after fallbacks. Skipping API call, marking for review.");
-        resultsToWrite.push({row: i, output: "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT", actual: "", normalized: normalizeTitle(title)});
-        continue;
+      Logger.log("CRITICAL: categoriesForThisPrompt is empty for product: " + title + " even after fallbacks. Skipping API call, marking for review.");
+      resultsToWrite.push({
+        row: i,
+        output: "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT",
+        actual: "",
+        normalized: normalizeTitle(title)
+      });
+      continue;
     }
 
     const isAmbiguous = detectBundleAmbiguityTerms(title, description);
@@ -935,13 +946,19 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
     while (attempts < MAX_API_RETRIES) {
       const payload = {
         model: OPENAI_MODEL,
-        messages: [{ role: "user", content: categorizationPrompt }],
+        messages: [{
+          role: "user",
+          content: categorizationPrompt
+        }],
         max_tokens: MAX_COMPLETION_TOKENS,
         temperature: OPENAI_TEMPERATURE
       };
       const options = {
         'method': 'post',
-        'headers': { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        'headers': {
+          'Authorization': 'Bearer ' + apiKey,
+          'Content-Type': 'application/json'
+        },
         'payload': JSON.stringify(payload),
         'muteHttpExceptions': true
       };
@@ -953,9 +970,9 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
         if (responseCode === 200) {
           const jsonResponse = JSON.parse(responseText);
-          let rawText = jsonResponse.choices && jsonResponse.choices[0] && jsonResponse.choices[0].message && jsonResponse.choices[0].message.content
-                               ? jsonResponse.choices[0].message.content.trim()
-                               : "";
+          let rawText = jsonResponse.choices && jsonResponse.choices[0] && jsonResponse.choices[0].message && jsonResponse.choices[0].message.content ?
+            jsonResponse.choices[0].message.content.trim() :
+            "";
 
           let extractedCategory = rawText;
           let confidence = "";
@@ -994,11 +1011,11 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
             if (errorPayload && errorPayload.error && errorPayload.error.message) {
               const match = errorPayload.error.message.match(/Please try again in ([\d\.]+)s/);
               if (match && match[1]) {
-                retryAfterSeconds = parseFloat(match[1]) + 0.5 + attempts; 
+                retryAfterSeconds = parseFloat(match[1]) + 0.5 + attempts;
               }
             }
           } catch (e) { /* Ignore parsing error, use calculated retry */ }
-          Utilities.sleep(Math.max(retryAfterSeconds * 1000, 2000)); 
+          Utilities.sleep(Math.max(retryAfterSeconds * 1000, 2000));
           if (attempts >= MAX_API_RETRIES) {
             Logger.log(`Max retry attempts reached for product: ${title}.`);
             chosenCategory = `API_ERROR_RATE_LIMIT_MAX_RETRIES: ${responseCode}`;
@@ -1016,20 +1033,31 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
       } catch (e) {
         Logger.log(`Script execution error during API call for product ${title}: ${e.toString()} ${e.stack}`);
         chosenCategory = `SCRIPT_ERROR: ${e.message}`;
-        break; 
+        break;
       }
     }
-    resultsToWrite.push({row: i, output: chosenCategory, actual: validatedCategory || chosenCategory, normalized: normalizeTitle(title)});
+    resultsToWrite.push({
+      row: i,
+      output: chosenCategory,
+      actual: validatedCategory || chosenCategory,
+      normalized: normalizeTitle(title)
+    });
   }
 
+  // Consistency check for nearly identical titles
   const dupMap = {};
   resultsToWrite.forEach(item => {
     const key = item.normalized;
     if (!dupMap[key]) {
-      dupMap[key] = {category: item.actual, refs: [item]};
+      dupMap[key] = {
+        category: item.actual,
+        refs: [item]
+      };
     } else {
       if (dupMap[key].category !== item.actual) {
-        dupMap[key].refs.forEach(r => { r.output = 'AI_LOGIC_CONFLICT_DUPLICATE'; });
+        dupMap[key].refs.forEach(r => {
+          r.output = 'AI_LOGIC_CONFLICT_DUPLICATE';
+        });
         item.output = 'AI_LOGIC_CONFLICT_DUPLICATE';
         dupMap[key].refs.push(item);
       } else {
