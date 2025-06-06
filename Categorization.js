@@ -642,8 +642,70 @@ function columnLetterToIndex(col) {
   return index;
 }
 
+// Normalizes a product title for duplicate detection.
 function normalizeTitle(text) {
   return String(text).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Detects ambiguous bundle-related terms in the title or description.
+ */
+// Returns true if text includes words that often mean the listing could be a
+// bundle, kit, pack or system. This helps us tweak the AI prompt so the model
+// focuses on the primary item when a bundle is detected.
+function detectBundleAmbiguityTerms(title, description) {
+  const text = ((title || '') + ' ' + (description || '')).toLowerCase();
+  return /(\bkit\b|\bbundle\b|\bpack\b|\bsystem\b)/i.test(text);
+}
+
+/**
+ * Extracts simple structured data such as model, size and specs from text.
+ */
+// Extracts lightweight structured details from the text that may help the AI
+// understand what is being sold. Currently looks for a model identifier, any
+// noted size/dimensions and a block of specifications.
+function parseStructuredDetails(title, description) {
+  const text = ((title || '') + ' ' + (description || '')).replace(/\n+/g, ' ');
+  const details = {};
+  let m = text.match(/\bmodel[:\s#-]*([A-Za-z0-9-]+)/i);
+  if (m) details.model = m[1];
+  m = text.match(/\b(?:size|dimension|dimensions)[:\s]*([A-Za-z0-9\."' xX×]+)/i);
+  if (m) details.size = m[1];
+  m = text.match(/\b(?:specs?|specifications?)[:\s]*([^.;]+)/i);
+  if (m) details.specs = m[1].trim();
+  return details;
+}
+
+/**
+ * Builds the prompt sent to the AI, optionally adding ambiguity guidance and
+ * structured data fields.
+ */
+function buildAICategorizationPrompt(title, description, categories, extraData, isAmbiguous) {
+  let prompt = `You are an expert e-commerce product categorizer. Carefully study the information below and pick the single most accurate category from the fixed "AVAILABLE CATEGORIES" list.
+
+Guidelines:
+1. Analyze the Product Title and Description to determine the exact product type, purpose, and any key features.
+2. Consider the vendor/brand for additional context.
+3. Search the list for the most specific category that matches these attributes, using synonyms and context when needed.
+4. If no perfect match exists, choose the closest broader category. Use accessory categories when appropriate.
+5. Ensure your answer is EXACTLY one category name copied verbatim from the list. Do not alter or invent names.`;
+
+  if (isAmbiguous) {
+    prompt += `\nThis listing may describe a kit, bundle, pack or system. Focus on the primary product type when choosing a category.`;
+  }
+
+  if (extraData && Object.keys(extraData).length > 0) {
+    prompt += `\n\nExtracted Details:`;
+    if (extraData.model) prompt += `\nModel: ${extraData.model}`;
+    if (extraData.size) prompt += `\nSize: ${extraData.size}`;
+    if (extraData.specs) prompt += `\nSpecs: ${extraData.specs}`;
+  }
+
+  prompt += `\n\nAVAILABLE CATEGORIES:\n${categories.join('\n')}\n\nProduct Title: "${title}"\nProduct Description: "${description}"`;
+  prompt += `\n\nThink carefully, then reply ONLY with the chosen category followed by a pipe and a confidence rating of High, Medium, or Low.`;
+  prompt += `\nExample: Pro Audio > Mixers | High`;
+
+  return prompt;
 }
 
 
@@ -683,23 +745,23 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
   const combinedText = titleLower + " " + descriptionLower;
   const vendorLower = productVendor ? String(productVendor).toLowerCase() : "";
 
-  let candidateGroupPrefixes = new Set(); 
+  let candidateGroupPrefixes = new Set();
   let matchOccurred = false;
 
   for (const vendorKey in VENDOR_SPECIFIC_CATEGORY_PREFIXES) {
-    if (vendorLower.includes(vendorKey.toLowerCase())) { 
+    if (vendorLower.includes(vendorKey.toLowerCase())) {
       VENDOR_SPECIFIC_CATEGORY_PREFIXES[vendorKey].forEach(prefix => candidateGroupPrefixes.add(prefix));
       matchOccurred = true;
       Logger.log("Matched vendor '" + productVendor + "' to rule for: " + vendorKey);
-      break; 
+      break;
     }
   }
 
-  if (!matchOccurred || candidateGroupPrefixes.size < 5) { 
+  if (!matchOccurred || candidateGroupPrefixes.size < 5) {
     KEYWORD_TO_CATEGORY_GROUP_MAPPINGS.forEach(mapping => {
       if (mapping.keywordsRegex.test(combinedText)) {
         mapping.targetGroupPrefixes.forEach(prefix => candidateGroupPrefixes.add(prefix));
-        matchOccurred = true; 
+        matchOccurred = true;
       }
     });
   }
@@ -710,33 +772,33 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
       for (const prefix of candidateGroupPrefixes) {
         if (masterCategory.startsWith(prefix)) {
           filteredCategories.push(masterCategory);
-          break; 
+          break;
         }
       }
     });
-    filteredCategories = [...new Set(filteredCategories)]; 
+    filteredCategories = [...new Set(filteredCategories)];
   }
 
   if (matchOccurred && filteredCategories.length === 0) {
-      Logger.log("Warning: Keyword/Vendor rules matched, but no categories found starting with prefixes: [" + Array.from(candidateGroupPrefixes).join(", ") + "] for '" + productTitle + "'. Broadening search.");
-      const matchedTopLevels = new Set();
-      candidateGroupPrefixes.forEach(prefix => {
-          const topLevel = prefix.split(" > ")[0];
-          if (TOP_LEVEL_CATEGORIES_FOR_FALLBACK.includes(topLevel)) {
-              matchedTopLevels.add(topLevel);
-          }
-      });
-      if (matchedTopLevels.size > 0) {
-          allMasterCategories.forEach(masterCategory => {
-              for (const topLevel of matchedTopLevels) {
-                  if (masterCategory.startsWith(topLevel)) {
-                      filteredCategories.push(masterCategory);
-                      break;
-                  }
-              }
-          });
-          filteredCategories = [...new Set(filteredCategories)];
+    Logger.log("Warning: Keyword/Vendor rules matched, but no categories found starting with prefixes: [" + Array.from(candidateGroupPrefixes).join(", ") + "] for '" + productTitle + "'. Broadening search.");
+    const matchedTopLevels = new Set();
+    candidateGroupPrefixes.forEach(prefix => {
+      const topLevel = prefix.split(" > ")[0];
+      if (TOP_LEVEL_CATEGORIES_FOR_FALLBACK.includes(topLevel)) {
+        matchedTopLevels.add(topLevel);
       }
+    });
+    if (matchedTopLevels.size > 0) {
+      allMasterCategories.forEach(masterCategory => {
+        for (const topLevel of matchedTopLevels) {
+          if (masterCategory.startsWith(topLevel)) {
+            filteredCategories.push(masterCategory);
+            break;
+          }
+        }
+      });
+      filteredCategories = [...new Set(filteredCategories)];
+    }
   }
 
   if (filteredCategories.length === 0) {
@@ -744,24 +806,24 @@ function getRelevantCategoriesForProduct(productTitle, productDescription, produ
     allMasterCategories.forEach(masterCategory => {
       for (const topLevel of TOP_LEVEL_CATEGORIES_FOR_FALLBACK) {
         if (masterCategory.startsWith(topLevel)) {
-          filteredCategories.push(masterCategory); 
+          filteredCategories.push(masterCategory);
         }
       }
     });
     filteredCategories = [...new Set(filteredCategories)];
   }
-  
+
   if (filteredCategories.length > MAX_CATEGORIES_TO_SEND) {
     Logger.log("Filtered list for '" + productTitle + "' has " + filteredCategories.length + " categories. Truncating to " + MAX_CATEGORIES_TO_SEND);
     filteredCategories = filteredCategories.slice(0, MAX_CATEGORIES_TO_SEND);
   }
-  
+
   if (filteredCategories.length === 0 && allMasterCategories.length > 0) {
-      Logger.log("CRITICAL FALLBACK: No categories selected by any filter for '" + productTitle + "'. Sending first 50 master categories to AI to prevent empty list.");
-      return allMasterCategories.slice(0, 50); 
+    Logger.log("CRITICAL FALLBACK: No categories selected by any filter for '" + productTitle + "'. Sending first 50 master categories to AI to prevent empty list.");
+    return allMasterCategories.slice(0, 50);
   }
 
-  Logger.log("For product '" + productTitle + "' (Vendor: " + productVendor + "), sending " + filteredCategories.length + " relevant categories to AI: [" + filteredCategories.slice(0,5).join(", ") + (filteredCategories.length > 5 ? "..." : "") + "]");
+  Logger.log("For product '" + productTitle + "' (Vendor: " + productVendor + "), sending " + filteredCategories.length + " relevant categories to AI: [" + filteredCategories.slice(0, 5).join(", ") + (filteredCategories.length > 5 ? "..." : "") + "]");
   return filteredCategories;
 }
 
@@ -775,7 +837,10 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
   const baseTemplateSheet = ss.getSheetByName(SHEET_NAME_PRODUCTS);
   const categoriesSheet = ss.getSheetByName(SHEET_NAME_CATEGORIES);
 
-  if (!baseTemplateSheet) { ui.alert(`Error: Sheet "${SHEET_NAME_PRODUCTS}" not found.`); return; }
+  if (!baseTemplateSheet) {
+    ui.alert(`Error: Sheet "${SHEET_NAME_PRODUCTS}" not found.`);
+    return;
+  }
 
   let allMasterCategories = [];
   if (categoriesSheet) {
@@ -798,7 +863,10 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
   Logger.log(`Loaded ${allMasterCategories.length} master categories.`);
 
   const lastRow = baseTemplateSheet.getLastRow();
-  if (lastRow < 2) { ui.alert("No product data found in '" + SHEET_NAME_PRODUCTS + "'."); return; }
+  if (lastRow < 2) {
+    ui.alert("No product data found in '" + SHEET_NAME_PRODUCTS + "'.");
+    return;
+  }
 
   const titleColIndex = columnLetterToIndex(TITLE_COLUMN);
   const descriptionColIndex = columnLetterToIndex(DESCRIPTION_COLUMN);
@@ -839,7 +907,7 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
     const title = titles[i];
     const description = descriptions[i];
-    const vendor = vendors[i] || ""; 
+    const vendor = vendors[i] || "";
 
     if (!title && !description) {
       continue;
@@ -847,32 +915,29 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
     Logger.log(`Processing row ${i + 2}: Title - "${title}", Vendor - "${vendor}"`);
     processedCount++;
-    
+
     const categoriesForThisPrompt = getRelevantCategoriesForProduct(String(title), String(description), String(vendor), allMasterCategories);
 
     if (categoriesForThisPrompt.length === 0) {
-        Logger.log("CRITICAL: categoriesForThisPrompt is empty for product: " + title + " even after fallbacks. Skipping API call, marking for review.");
-        resultsToWrite.push({row: i, output: "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT", actual: "", normalized: normalizeTitle(title)});
-        continue;
+      Logger.log("CRITICAL: categoriesForThisPrompt is empty for product: " + title + " even after fallbacks. Skipping API call, marking for review.");
+      resultsToWrite.push({
+        row: i,
+        output: "NEEDS_MANUAL_REVIEW_NO_CATEGORIES_SENT",
+        actual: "",
+        normalized: normalizeTitle(title)
+      });
+      continue;
     }
 
-    const categorizationPrompt = `You are an expert e-commerce product categorizer. Carefully study the information below and pick the single most accurate category from the fixed "AVAILABLE CATEGORIES" list.
-
-    Guidelines:
-    1. Analyze the Product Title and Description to determine the exact product type, purpose, and any key features.
-    2. Consider the vendor/brand for additional context.
-    3. Search the list for the most specific category that matches these attributes, using synonyms and context when needed.
-    4. If no perfect match exists, choose the closest broader category. Use accessory categories when appropriate.
-    5. Ensure your answer is EXACTLY one category name copied verbatim from the list. Do not alter or invent names.
-
-    AVAILABLE CATEGORIES:
-    \${categoriesForThisPrompt.join('\\n')}
-
-    Product Title: "\${title}"
-    Product Description: "\${description}"
-
-    Think carefully, then reply ONLY with the chosen category followed by a pipe and a confidence rating of High, Medium, or Low.
-    Example: Pro Audio > Mixers | High`;
+    const isAmbiguous = detectBundleAmbiguityTerms(title, description);
+    const structuredData = parseStructuredDetails(title, description);
+    const categorizationPrompt = buildAICategorizationPrompt(
+      String(title),
+      String(description),
+      categoriesForThisPrompt,
+      structuredData,
+      isAmbiguous
+    );
 
     let chosenCategory = "NEEDS_MANUAL_REVIEW_API_ISSUE";
     let validatedCategory = "";
@@ -881,13 +946,19 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
     while (attempts < MAX_API_RETRIES) {
       const payload = {
         model: OPENAI_MODEL,
-        messages: [{ role: "user", content: categorizationPrompt }],
+        messages: [{
+          role: "user",
+          content: categorizationPrompt
+        }],
         max_tokens: MAX_COMPLETION_TOKENS,
         temperature: OPENAI_TEMPERATURE
       };
       const options = {
         'method': 'post',
-        'headers': { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        'headers': {
+          'Authorization': 'Bearer ' + apiKey,
+          'Content-Type': 'application/json'
+        },
         'payload': JSON.stringify(payload),
         'muteHttpExceptions': true
       };
@@ -899,9 +970,9 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
 
         if (responseCode === 200) {
           const jsonResponse = JSON.parse(responseText);
-          let rawText = jsonResponse.choices && jsonResponse.choices[0] && jsonResponse.choices[0].message && jsonResponse.choices[0].message.content
-                               ? jsonResponse.choices[0].message.content.trim()
-                               : "";
+          let rawText = jsonResponse.choices && jsonResponse.choices[0] && jsonResponse.choices[0].message && jsonResponse.choices[0].message.content ?
+            jsonResponse.choices[0].message.content.trim() :
+            "";
 
           let extractedCategory = rawText;
           let confidence = "";
@@ -912,7 +983,7 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
           }
 
           const lowerCaseAllowedCategories = categoriesForThisPrompt.map(cat => cat.toLowerCase());
-          
+
           if (extractedCategory && lowerCaseAllowedCategories.includes(extractedCategory.toLowerCase())) {
             validatedCategory = categoriesForThisPrompt.find(cat => cat.toLowerCase() === extractedCategory.toLowerCase()) || extractedCategory;
           } else {
@@ -940,11 +1011,11 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
             if (errorPayload && errorPayload.error && errorPayload.error.message) {
               const match = errorPayload.error.message.match(/Please try again in ([\d\.]+)s/);
               if (match && match[1]) {
-                retryAfterSeconds = parseFloat(match[1]) + 0.5 + attempts; 
+                retryAfterSeconds = parseFloat(match[1]) + 0.5 + attempts;
               }
             }
           } catch (e) { /* Ignore parsing error, use calculated retry */ }
-          Utilities.sleep(Math.max(retryAfterSeconds * 1000, 2000)); 
+          Utilities.sleep(Math.max(retryAfterSeconds * 1000, 2000));
           if (attempts >= MAX_API_RETRIES) {
             Logger.log(`Max retry attempts reached for product: ${title}.`);
             chosenCategory = `API_ERROR_RATE_LIMIT_MAX_RETRIES: ${responseCode}`;
@@ -962,10 +1033,15 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
       } catch (e) {
         Logger.log(`Script execution error during API call for product ${title}: ${e.toString()} ${e.stack}`);
         chosenCategory = `SCRIPT_ERROR: ${e.message}`;
-        break; 
+        break;
       }
     }
-    resultsToWrite.push({row: i, output: chosenCategory, actual: validatedCategory || chosenCategory, normalized: normalizeTitle(title)});
+    resultsToWrite.push({
+      row: i,
+      output: chosenCategory,
+      actual: validatedCategory || chosenCategory,
+      normalized: normalizeTitle(title)
+    });
   }
 
   // Consistency check for nearly identical titles
@@ -973,10 +1049,15 @@ function categorizeProductsWithFixedList(maxRowsToProcess) {
   resultsToWrite.forEach(item => {
     const key = item.normalized;
     if (!dupMap[key]) {
-      dupMap[key] = {category: item.actual, refs: [item]};
+      dupMap[key] = {
+        category: item.actual,
+        refs: [item]
+      };
     } else {
       if (dupMap[key].category !== item.actual) {
-        dupMap[key].refs.forEach(r => { r.output = 'AI_LOGIC_CONFLICT_DUPLICATE'; });
+        dupMap[key].refs.forEach(r => {
+          r.output = 'AI_LOGIC_CONFLICT_DUPLICATE';
+        });
         item.output = 'AI_LOGIC_CONFLICT_DUPLICATE';
         dupMap[key].refs.push(item);
       } else {
